@@ -752,13 +752,13 @@ docker stop customer-churn-api-container
 ### FastAPI
 
 ```powershell
-uvicorn api.main:app --reload
+python -m uvicorn api.main:app --reload
 ```
 
 ### Streamlit
 
 ```powershell
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 ### Tests
