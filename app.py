@@ -7,7 +7,8 @@ import streamlit as st
 # ---------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------
-MODEL_PATH = Path(__file__).parent / "models" / "churn_model.pkl"  # change to your real path/name
+MODEL_PATH = Path(__file__).parent / "models" / "churn_model.pkl"
+PREPROCESSOR_PATH = Path(__file__).parent / "models" / "preprocessor.pkl"  # adjust folder if different
 THRESHOLD = 0.5  # change to your chosen decision threshold
 
 # set_page_config must be the first Streamlit command
@@ -42,13 +43,13 @@ st.markdown(
 # ---------------------------------------------------------
 @st.cache_resource
 def load_model():
-    return joblib.load(MODEL_PATH)
+    return joblib.load(MODEL_PATH), joblib.load(PREPROCESSOR_PATH)
 
 
 try:
-    model = load_model()
-except FileNotFoundError:
-    st.error(f"Model file not found at: {MODEL_PATH}. Check the path and that the file is pushed to GitHub.")
+    model, preprocessor = load_model()
+except FileNotFoundError as e:
+    st.error(f"Model file not found: {e.filename}. Check the path and that the file is pushed to GitHub.")
     st.stop()
 except Exception as e:
     st.error(f"Could not load the model: {e}")
@@ -58,7 +59,8 @@ except Exception as e:
 def predict_local(data: dict):
     """Returns (prediction 0/1, churn probability)."""
     df = pd.DataFrame([data])
-    prob = float(model.predict_proba(df)[0][1])
+    X = preprocessor.transform(df)
+    prob = float(model.predict_proba(X)[0][1])
     return int(prob >= THRESHOLD), prob
 
 
