@@ -1,11 +1,16 @@
-import requests
+from pathlib import Path
+
+import joblib
+import pandas as pd
 import streamlit as st
 
 # ---------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------
-DEFAULT_API_URL = "http://127.0.0.1:8000/predict"
+MODEL_PATH = Path(__file__).parent / "models" / "churn_model.pkl"  # change to your real path/name
+THRESHOLD = 0.5  # change to your chosen decision threshold
 
+# set_page_config must be the first Streamlit command
 st.set_page_config(
     page_title="Customer Churn Prediction",
     page_icon="📊",
@@ -33,10 +38,35 @@ st.markdown(
 
 
 # ---------------------------------------------------------
+# MODEL
+# ---------------------------------------------------------
+@st.cache_resource
+def load_model():
+    return joblib.load(MODEL_PATH)
+
+
+try:
+    model = load_model()
+except FileNotFoundError:
+    st.error(f"Model file not found at: {MODEL_PATH}. Check the path and that the file is pushed to GitHub.")
+    st.stop()
+except Exception as e:
+    st.error(f"Could not load the model: {e}")
+    st.stop()
+
+
+def predict_local(data: dict):
+    """Returns (prediction 0/1, churn probability)."""
+    df = pd.DataFrame([data])
+    prob = float(model.predict_proba(df)[0][1])
+    return int(prob >= THRESHOLD), prob
+
+
+# ---------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------
 def risk_band(prob: float):
-    """UI-only display bands (the model's own decision comes from the API)."""
+    """UI-only display bands (the model's own decision uses THRESHOLD)."""
     if prob < 0.30:
         return "Low risk", "badge-low"
     if prob < 0.60:
@@ -96,13 +126,10 @@ def build_signals(d: dict) -> list[tuple[str, str]]:
 # SIDEBAR
 # ---------------------------------------------------------
 with st.sidebar:
-    st.header("Settings")
-    api_url = st.text_input("API endpoint", value=DEFAULT_API_URL)
-    st.caption("Make sure the FastAPI server is running before predicting.")
-    st.divider()
+    st.header("About")
     st.caption(
         "Model trained on the IBM Telco Customer Churn dataset. "
-        "Served with FastAPI."
+        "The project also includes a FastAPI service, tests and Docker setup on GitHub."
     )
 
 
@@ -136,8 +163,7 @@ with st.container(border=True):
     c1, c2 = st.columns(2)
     with c1:
         phone_service = st.selectbox("Phone service", ["Yes", "No"])
-        no_phone = phone_service == "No"
-        if no_phone:
+        if phone_service == "No":
             st.selectbox("Multiple lines", ["No phone service"], disabled=True, key="ml_locked")
             multiple_lines = "No phone service"
         else:
@@ -145,8 +171,7 @@ with st.container(border=True):
     with c2:
         internet_service = st.selectbox("Internet service", ["DSL", "Fiber optic", "No"])
 
-    no_net = internet_service == "No"
-    net_off = "No internet service" if no_net else None
+    net_off = "No internet service" if internet_service == "No" else None
 
     c1, c2 = st.columns(2)
     with c1:
@@ -208,29 +233,15 @@ if predict_button:
 
     try:
         with st.spinner("Calculating churn probability..."):
-            response = requests.post(api_url, json=customer_data, timeout=10)
+            prediction, probability = predict_local(customer_data)
 
-        if response.status_code != 200:
-            st.error(f"The API returned an error (status {response.status_code}). Check the server logs.")
-        else:
-            result = response.json()
-            prediction = int(result["churn_prediction"])
-            probability = float(result["churn_probability"])
-
-            st.session_state["result"] = {
-                "prediction": prediction,
-                "probability": probability,
-                "signals": build_signals(customer_data),
-            }
-
-    except requests.exceptions.ConnectionError:
-        st.error("Could not reach the API. Start the FastAPI server and try again.")
-    except requests.exceptions.Timeout:
-        st.error("The API took too long to respond. Try again in a moment.")
-    except (KeyError, ValueError):
-        st.error("The API response was not in the expected format.")
-    except requests.exceptions.RequestException as e:
-        st.error(f"Request failed: {e}")
+        st.session_state["result"] = {
+            "prediction": prediction,
+            "probability": probability,
+            "signals": build_signals(customer_data),
+        }
+    except Exception as e:
+        st.error(f"Prediction failed: {e}")
 
 
 # ---------------------------------------------------------
